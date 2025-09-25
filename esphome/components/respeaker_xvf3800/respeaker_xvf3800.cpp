@@ -127,6 +127,8 @@ void RespeakerXVF3800::start_dfu_update() {
     this->dfu_update_status_ = UPDATE_COMMUNICATION_ERROR;
     return;
   }
+  
+  this->write_led_effect(2);
 
   this->bytes_written_ = 0;
   this->last_progress_ = 0;
@@ -399,48 +401,45 @@ void RespeakerXVF3800::write_mute_status(bool value) {
   }
 }
 
-int RespeakerXVF3800::read_led_beam_direction() {
-  const uint8_t aec_req[] = {AEC_SERVICER_RESID, 
-                             AEC_AZIMUTH_VALUES_CMD | 0x80, 
-                             17};  // 16 bytes + 1 status byte
-
-  uint8_t aec_resp[17];
+void RespeakerXVF3800::write_led_effect(uint8_t effect) {
+  const uint8_t led_req[] = {GPO_SERVICER_RESID, 
+                             GPO_SERVICER_RESID_LED_EFFECT, 
+                             1,
+                             effect};
   
-  i2c::ErrorCode err = this->write_read(aec_req, sizeof(aec_req), aec_resp, sizeof(aec_resp));
+  i2c::ErrorCode err = this->write(led_req, sizeof(led_req));
   if (err != i2c::ERROR_OK) {
-    ESP_LOGW(TAG, "Failed to read AEC azimuth values, error=%d", (int)err);
+    ESP_LOGW(TAG, "Failed to write LED effect %d, error=%d", effect, (int)err);
+  } else {
+    ESP_LOGD(TAG, "Set LED effect to %d", effect);
+  }
+}
+
+int RespeakerXVF3800::read_led_beam_direction() {
+  const uint8_t doa_req[] = {GPO_SERVICER_RESID, 
+                             GPO_SERVICER_RESID_DOA | 0x80, 
+                             GPO_DOA_READ_NUM_BYTES + 1};
+
+  uint8_t doa_resp[GPO_DOA_READ_NUM_BYTES + 1];
+  
+  i2c::ErrorCode err = this->write_read(doa_req, sizeof(doa_req), doa_resp, sizeof(doa_resp));
+  if (err != i2c::ERROR_OK) {
+    ESP_LOGW(TAG, "Failed to read DoA values, I2C error=%d", (int)err);
     return -1;
   }
   
-  uint8_t status = aec_resp[0];
+  uint8_t status = doa_resp[0];
   if (status != 0) {
-    //ESP_LOGW(TAG, "AEC azimuth read returned error status: %02X", status);
+    ESP_LOGW(TAG, "DoA read returned error status: %02X", status);
     return -1;
   }
+
+  uint16_t doa_value = (doa_resp[2] << 8) | doa_resp[1];
+  uint16_t speech_detected = (doa_resp[4] << 8) | doa_resp[3];
   
-  // Extract the fourth float (bytes 13-16)
-  float fourth_float;
-  memcpy(&fourth_float, &aec_resp[13], sizeof(float));
+  ESP_LOGD(TAG, "DoA value: %d, Speech detected: %d", doa_value, speech_detected);
   
-  ESP_LOGD(TAG, "AEC fourth float (raw): %f", fourth_float);
-  
-  // Convert from radians to degrees
-  float degrees = fourth_float * 180.0f / M_PI;
-  
-  // Map degrees to LED index (0-11)
-  // Each LED covers 30 degrees (360/12 = 30)
-  // LED 0 is at 0 degrees, LED 1 at 30 degrees, etc.
-  int led_index = (int)round(degrees / 30.0f);
-  
-  // Handle wrap-around and ensure valid range
-  if (led_index < 0) {
-    led_index += 12;
-  }
-  led_index = led_index % 12;
-  
-  ESP_LOGD(TAG, "AEC azimuth: %.1f degrees -> LED %d", degrees, led_index);
-  
-  return led_index;
+  return doa_value;
 }
 
 void RespeakerXVF3800::xmos_write_bytes(uint8_t resid, uint8_t cmd, uint8_t *value, uint8_t write_byte_num) {

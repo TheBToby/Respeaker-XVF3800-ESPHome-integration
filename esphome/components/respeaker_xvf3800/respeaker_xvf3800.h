@@ -36,6 +36,9 @@ const uint8_t GPO_SERVICER_RESID_GPO_READ_VALUES = 0;
 const uint8_t GPO_SERVICER_RESID_GPO_WRITE_VALUE = 1;
 const uint8_t GPO_SERVICER_RESID_LED_RING_VALUE = 18;
 const uint8_t GPO_GPO_READ_NUM_BYTES = 5;
+const uint8_t GPO_SERVICER_RESID_LED_EFFECT = 12;
+const uint8_t GPO_SERVICER_RESID_DOA = 19;
+const uint8_t GPO_DOA_READ_NUM_BYTES = 4;
 
 // AEC Azimuth constants for LED beam sensor
 const uint8_t AEC_SERVICER_RESID = 33;
@@ -217,6 +220,8 @@ class RespeakerXVF3800 : public i2c::I2CDevice, public Component {
   bool read_gpio_status(uint32_t *gpio_status);
   bool read_mute_status();
   void write_mute_status(bool value);
+
+  void write_led_effect(uint8_t effect);
   
   // Individual LED ring control (12 LEDs)
   void set_led_ring(uint32_t *rgb_array);
