@@ -35,10 +35,10 @@ substitutions:
 esphome:
   name: respeaker-xvf3800-assistant
   friendly_name: reSpeaker XVF3800 Assistant
-  project: 
+  project:
     name: formatbce.Respeaker XVF3800 Satellite
-    version: 2026.1.2
-  min_version: 2026.1.0
+    version: 2026.2.1
+  min_version: 2026.2.0
   on_boot:
     - priority: 375
       then:
@@ -294,7 +294,7 @@ time:
           - script.execute: check_alarm
     on_time_sync:
       - script.execute: publish_current_time
-          
+
 switch:
   # Mute Sound Switch.
   - platform: template
@@ -360,10 +360,6 @@ switch:
     id: alarm_on
     icon: mdi:bell-badge
     name: "Alarm on"
-#    on_turn_on:
-#      - script.execute: control_leds
-#    on_turn_off:
-#      - script.execute: control_leds
 
 binary_sensor:
 
@@ -465,7 +461,7 @@ script:
           } else {
             id(last_led_update_time) = millis(); // Reset timer for smooth animation start
           }
-          
+
   # Individual update scripts for each animated effect
   - id: update_breathe_effect
     then:
@@ -648,7 +644,7 @@ script:
       - lambda: |-
           constexpr int NUM_LEDS = 12;
           static int tick_index = 0;
-          
+
           uint32_t now = millis();
           // Only update tick position every 100ms to reduce I2C traffic
           static uint32_t last_tick_update = 0;
@@ -656,13 +652,13 @@ script:
             tick_index = (tick_index - 1 + NUM_LEDS) % NUM_LEDS;
             last_tick_update = now;
           }
-          
+
           uint32_t colors[NUM_LEDS] = {0};
           uint32_t seconds_left = id(first_active_timer).seconds_left;
           uint32_t total_seconds = id(first_active_timer).total_seconds;
 
           float timer_ratio = (float)NUM_LEDS * seconds_left / std::max(total_seconds, (uint32_t)1);
-          
+
           float master_brightness = id(user_led_ring_brightness).state * id(effect_brightness);
 
           for (int i = 0; i < NUM_LEDS; i++) {
@@ -750,7 +746,7 @@ script:
 
             // Render the smoothed beam
             float master_brightness = id(user_led_ring_brightness).state * id(effect_brightness);
-           
+
             for (int i = 0; i < NUM_LEDS; i++) {
               // Calculate circular distance from current LED to the animated position
               float dist = abs(i - current_pos);
@@ -772,7 +768,7 @@ script:
             }
           }
           id(respeaker).set_led_ring(colors);
-          
+
   # Master script controlling the LEDs, based on different conditions : initialization in progress, wifi and api connected and voice assistant phase.
   # For the sake of simplicity and re-usability, the script calls child scripts defined below.
   # This script will be called every time one of these conditions is changing.
@@ -789,7 +785,7 @@ script:
           static bool last_timer_active = false;
           static bool last_improv_ble = false;
           static bool last_init_progress = false;
-          
+
           bool respeaker_failed = id(respeaker).is_failed();
           bool wifi_connected = id(wifi_id).is_connected();
           bool api_connected = id(api_id).is_connected();
@@ -797,7 +793,7 @@ script:
           bool new_timer_ringing = id(timer_ringing).state;
           bool improv_ble = id(improv_ble_in_progress);
           bool init_progress = id(init_in_progress);
-          
+
           // Only update if something actually changed
           bool needs_update = (
             respeaker_failed != last_respeaker_failed ||
@@ -808,9 +804,9 @@ script:
             improv_ble != last_improv_ble ||
             init_progress != last_init_progress
           );
-          
+
           if (!needs_update) return;
-          
+
           // Update cache
           last_respeaker_failed = respeaker_failed;
           last_wifi_connected = wifi_connected;
@@ -819,18 +815,18 @@ script:
           last_timer_ringing = new_timer_ringing;
           last_improv_ble = improv_ble;
           last_init_progress = init_progress;
-          
+
           if (respeaker_failed) {
             id(control_leds_respeaker_startup_failed).execute();
             return;
           }
-          
+
           // Only check timers if we need to
           id(check_if_timers_active).execute();
           if (id(is_timer_active)){
             id(fetch_first_active_timer).execute();
           }
-          
+
           // Continue with existing logic...
           if (improv_ble) {
             id(control_leds_improv_ble_state).execute();
@@ -1054,7 +1050,10 @@ script:
   # Script executed when the timer is ringing, to repeat the timer finished sound.
   - id: enable_repeat_one
     then:
-      # Turn on the repeat mode and pause for 500 ms between playlist items/repeats (20251108: UPDATE: 2000 ms pause)
+      - media_player.repeat_one:
+          id: external_media_player
+          announcement: true
+      # Turn on the repeat mode and pause for 500 ms between playlist items/repeats
       - lambda: |-
             id(external_media_player)->set_playlist_delay_ms(1, 2000);
 
@@ -1062,6 +1061,9 @@ script:
   - id: disable_repeat
     then:
       # Turn off the repeat mode and pause for 0 ms between playlist items/repeats
+      - media_player.repeat_off:
+          id: external_media_player
+          announcement: true
       - lambda: |-
             id(external_media_player)->set_playlist_delay_ms(1, 0);
 
@@ -1090,24 +1092,13 @@ script:
 
   # Script used to fetch the first active timer (Stored in global first_active_timer)
   - id: fetch_first_active_timer
-    mode: single
     then:
       - lambda: |
-          static uint32_t last_fetch_time = 0;
-          uint32_t now = millis();
-          
-          // Only fetch every 500ms to reduce overhead
-          if (now - last_fetch_time < 500) return;
-          last_fetch_time = now;
-          
-          const auto timers = id(va).get_timers();
-          if (timers.empty()) return;
-          
-          auto output_timer = timers.begin()->second;
-          for (auto &iterable_timer : timers) {
-            if (iterable_timer.second.is_active && 
-                iterable_timer.second.seconds_left <= output_timer.seconds_left) {
-              output_timer = iterable_timer.second;
+          const auto &timers = id(va).get_timers();
+          auto output_timer = *timers.begin();
+          for (const auto &timer : timers) {
+            if (timer.is_active && timer.seconds_left <= output_timer.seconds_left) {
+              output_timer = timer;
             }
           }
           id(first_active_timer) = output_timer;
@@ -1116,13 +1107,11 @@ script:
   - id: check_if_timers_active
     then:
       - lambda: |
-          const auto timers = id(va).get_timers();
+          const auto &timers = id(va).get_timers();
           bool output = false;
-          if (timers.size() > 0) {
-            for (auto &iterable_timer : timers) {
-              if(iterable_timer.second.is_active) {
-                output = true;
-              }
+          for (const auto &timer : timers) {
+            if (timer.is_active) {
+              output = true;
             }
           }
           id(is_timer_active) = output;
@@ -1179,7 +1168,7 @@ script:
                 } else if (action == "Sound and event") {
                   id(timer_ringing).turn_on();
                   id(send_alarm_event).execute();
-                } 
+                }
               }
             } else {
               ESP_LOGW("alarm", "Incorrect alarm time setting");
@@ -1212,7 +1201,7 @@ script:
           static std::string last_time_string = "";
           auto time_now = id(homeassistant_time).now();
           std::string current_time_string = time_now.strftime("%H:%M");
-          
+
           // Only publish if time actually changed
           if (current_time_string != last_time_string) {
             id(current_time).publish_state(current_time_string);
@@ -1221,24 +1210,24 @@ script:
 
 i2s_audio:
   - id: i2s_output
-    i2s_lrclk_pin: 
+    i2s_lrclk_pin:
       number: GPIO7
       allow_other_uses: true
-    i2s_bclk_pin:  
+    i2s_bclk_pin:
       number: GPIO8
       allow_other_uses: true
-    # i2s_mclk_pin:  
+    # i2s_mclk_pin:
     #   number: GPIO9
     #   allow_other_uses: true
 
   - id: i2s_input
-    i2s_lrclk_pin:  
+    i2s_lrclk_pin:
       number: GPIO7
       allow_other_uses: true
-    i2s_bclk_pin:  
+    i2s_bclk_pin:
       number: GPIO8
       allow_other_uses: true
-    # i2s_mclk_pin:  
+    # i2s_mclk_pin:
     #   number: GPIO9
     #   allow_other_uses: true
 
@@ -1253,7 +1242,7 @@ microphone:
     i2s_mode: secondary
     i2s_audio_id: i2s_input
     channel: stereo
-      
+
 speaker:
   # Hardware speaker output
   - platform: i2s_audio
@@ -1274,13 +1263,14 @@ speaker:
     id: mixing_speaker
     output_speaker: i2s_audio_speaker
     num_channels: 2
+    task_stack_in_psram: true
     source_speakers:
       - id: announcement_mixing_input
         timeout: never
       - id: media_mixing_input
         timeout: never
 
-  # Vritual speakers to resample each pipelines' audio, if necessary, as the mixer speaker requires the same sample rate
+  # Virtual speakers to resample each pipelines' audio, if necessary, as the mixer speaker requires the same sample rate
   - platform: resampler
     id: announcement_resampling_speaker
     output_speaker: announcement_mixing_input
@@ -1385,45 +1375,39 @@ external_components:
       type: git
       url: https://github.com/formatBCE/Respeaker-XVF3800-ESPHome-integration
       ref: main
-    components: 
+    components:
       - respeaker_xvf3800
       - aic3104
     refresh: 0s
   - source:
-      # https://github.com/esphome/esphome/pull/12253 (merged into upstream ESPHome, will be available in ESPHome 2026.2.0)
-      type: git
-      url: https://github.com/esphome/esphome
-      ref: c28c97fbaf15c4ce353317e873054fb00a1d7a6d  # ESPHome dev branch commit hash
-    components: [mixer]
-  - source:
-      # https://github.com/esphome/esphome/pull/12254 (merged into upstream ESPHome, will be available in ESPHome 2026.2.0)
-      type: git
-      url: https://github.com/esphome/esphome
-      ref: 298efb53400852a09e2f8bdf16feac9a58422059  # ESPHome dev branch commit hash
-    components: [resampler]
-  - source:
       # https://github.com/esphome/esphome/pull/12256
       type: git
       url: https://github.com/esphome/esphome
-      ref: 9148832ea4e54907bad71a24d4ced1ce6c862433
+      ref: a2d98e1d5e020200db8f3caf27a74a939a661dc4
     components: [audio]
   - source:
       # https://github.com/esphome/esphome/pull/12258
       type: git
       url: https://github.com/esphome/esphome
-      ref: bff22983a390352360796f8e1363127e0cd1f898
+      ref: b4b7c5b25ebe0f2ab988f700219fa3c57b2377b7
     components: [media_player]
   - source:
       # https://github.com/esphome/esphome/pull/12284
       type: git
       url: https://github.com/esphome/esphome
-      ref: 3cc894763b05ac8ffd9fdd15bcb549d47cadf6eb
-    components: [mdns, sendspin]
+      ref: d48058e140c98f5c2d902661d851a6b712d62434
+    components: [sendspin]
+  - source:
+      # https://github.com/esphome/esphome/pull/14013
+      type: git
+      url: https://github.com/esphome/esphome
+      ref: 51dcce3d1f22865ebb458a5447bbc877ac946b5a
+    components: [mdns]
   - source:
       # https://github.com/esphome/esphome/pull/12429
       type: git
       url: https://github.com/esphome/esphome
-      ref: 32708a2ee74f5ea4107448f62755004ad3e879c5
+      ref: b49b09b6ae56502aa3ce51be86f90d732d019b2c
     refresh: 0s
     components: [file, http_request, media_source, speaker_source]
 
@@ -1457,7 +1441,7 @@ respeaker_xvf3800:
                 priority: false
                 sound_file: "mute_switch_off_sound"
   dfu_version:
-    name: "Firmware Version" 
+    name: "Firmware Version"
     update_interval: 120s
   led_beam_sensor:
     name: "Voice Beam Direction"
@@ -1596,7 +1580,7 @@ select:
     initial_option: "Custom"
     options:
       - "Purple"
-      - "Blue" 
+      - "Blue"
       - "Green"
       - "Yellow"
       - "Cyan"
@@ -1692,7 +1676,7 @@ voice_assistant:
     - mixer_speaker.apply_ducking:
         id: media_mixing_input
         decibel_reduction: 20  # Number of dB quieter; higher implies more quiet, 0 implies full volume
-        duration: 0.0s         # The duration of the transition (default is no transition)
+        duration: 0.0s  # The duration of the transition (default is no transition)
   on_listening:
     - lambda: id(voice_assistant_phase) = ${voice_assist_waiting_for_command_phase_id};
     - script.execute: control_leds
@@ -1730,7 +1714,7 @@ voice_assistant:
     - script.execute:
         id: send_stt_text_event
         stt_text: !lambda 'return x;'
-    
+
   # When the voice assistant ends ...
   on_end:
     - wait_until:
@@ -1787,7 +1771,7 @@ voice_assistant:
     - script.execute: control_leds
   on_timer_tick:
     # Reduce LED updates - only every 5 seconds instead of every second
-    - lambda: | 
+    - lambda: |
         id(fetch_first_active_timer).execute();
         int seconds_left = id(first_active_timer).seconds_left;
         if (seconds_left % 5 == 0) {
