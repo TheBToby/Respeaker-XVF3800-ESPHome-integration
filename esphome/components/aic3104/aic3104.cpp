@@ -19,12 +19,12 @@ static const char *const TAG = "aic3104";
 void AIC3104::setup() {
   ESP_LOGCONFIG(TAG, "Setting up AIC3104 Audio DAC...");
   // Initialize volume to a sensible default (50%)
-  // The base class AudioDac::volume_ defaults to 0, which would show
+  // The base class AudioDac::volume defaults to 0, which would show
   // as 0% in Home Assistant and cause the volume slider to only show 0 or 1.
-  this->volume_ = 0.5f;
+  this->volume = 0.5f;
   this->is_muted_ = false;
   this->write_volume_();
-  ESP_LOGCONFIG(TAG, "AIC3104 initialized with default volume: %.0f%%", this->volume_ * 100.0f);
+  ESP_LOGCONFIG(TAG, "AIC3104 initialized with default volume: %.0f%%", this->volume * 100.0f);
 }
 
 void AIC3104::dump_config() {
@@ -47,8 +47,8 @@ bool AIC3104::set_mute_on() {
 }
 
 bool AIC3104::set_volume(float volume) {
-  this->volume_ = clamp<float>(volume, 0.0, 1.0);
-  ESP_LOGD(TAG, "AIC3104 set_volume called: %.2f", this->volume_);
+  this->volume = clamp<float>(volume, 0.0, 1.0);
+  ESP_LOGD(TAG, "AIC3104 set_volume called: %.2f", this->volume);
   bool result = this->write_volume_();
   ESP_LOGD(TAG, "AIC3104 write_volume result: %s", result ? "SUCCESS" : "FAILED");
   return result;
@@ -56,11 +56,11 @@ bool AIC3104::set_volume(float volume) {
 
 bool AIC3104::is_muted() { return this->is_muted_; }
 
-float AIC3104::volume() { return this->volume_; }
+float AIC3104::volume() { return this->volume; }
 
 bool AIC3104::write_mute_() {
   // XVF3800/AIC3104 mute control - setting volume to maximum attenuation
-  uint8_t mute_value = this->is_muted_ ? 0x80 : ((1.0f - this->volume_) * 0x80);
+  uint8_t mute_value = this->is_muted_ ? 0x80 : ((1.0f - this->volume) * 0x80);
   
   if (!this->write_byte(AIC3104_PAGE_CTRL, 0x00) || 
       !this->write_byte(AIC3104_LEFT_DAC_VOLUME, mute_value) ||
@@ -74,7 +74,7 @@ bool AIC3104::write_mute_() {
 }
 
 bool AIC3104::write_volume_() {
-  ESP_LOGD(TAG, "write_volume_() called - volume: %.2f", this->volume_);
+  ESP_LOGD(TAG, "write_volume_() called - volume: %.2f", this->volume);
   
   if (!this->write_byte(AIC3104_PAGE_CTRL, 0x00)) {
     ESP_LOGE(TAG, "Failed to set page 0");
@@ -83,7 +83,7 @@ bool AIC3104::write_volume_() {
   
   // Map volume 0.0-1.0 to DAC range 0x80-0x00 (inverted)
   // 0x00 = 0dB (loudest), 0x7F = -63.5dB (quietest), 0x80 = mute
-  uint8_t dac_val = (uint8_t)((1.0f - this->volume_) * 0x80);
+  uint8_t dac_val = (uint8_t)((1.0f - this->volume) * 0x80);
   dac_val = clamp<uint8_t>(dac_val, 0x00, 0x80);
   
   ESP_LOGD(TAG, "Writing DAC volume: 0x%.2x (%.1fdB attenuation) to registers 0x2B/0x2C", 
@@ -96,7 +96,7 @@ bool AIC3104::write_volume_() {
   }
   
   ESP_LOGD(TAG, "Volume %.1f%% → DAC: 0x%.2x (%.1fdB attenuation) - SUCCESS", 
-           this->volume_ * 100.0f, dac_val, -(float)dac_val);
+           this->volume * 100.0f, dac_val, -(float)dac_val);
   
   return true;
 }
