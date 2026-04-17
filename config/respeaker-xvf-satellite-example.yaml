@@ -1378,8 +1378,7 @@ external_components:
     refresh: 0s
   - source:
       type: git
-      #url: https://github.com/formatBCE/Respeaker-XVF3800-ESPHome-integration
-      url: https://github.com/TheBToby/Respeaker-XVF3800-ESPHome-integration
+      url: https://github.com/formatBCE/Respeaker-XVF3800-ESPHome-integration
       ref: main
     components:
       - respeaker_xvf3800
