@@ -17,7 +17,14 @@ static const char *const TAG = "aic3104";
   }
 
 void AIC3104::setup() {
-  // do nothing
+  ESP_LOGCONFIG(TAG, "Setting up AIC3104 Audio DAC...");
+  // Initialize volume to a sensible default (50%)
+  // The base class AudioDac::volume_ defaults to 0, which would show
+  // as 0% in Home Assistant and cause the volume slider to only show 0 or 1.
+  this->volume_ = 0.5f;
+  this->is_muted_ = false;
+  this->write_volume_();
+  ESP_LOGCONFIG(TAG, "AIC3104 initialized with default volume: %.0f%%", this->volume_ * 100.0f);
 }
 
 void AIC3104::dump_config() {

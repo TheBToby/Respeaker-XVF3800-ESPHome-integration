@@ -112,8 +112,6 @@ class AIC3104 : public audio_dac::AudioDac, public Component, public i2c::I2CDev
  protected:
   bool write_mute_();
   bool write_volume_();
-
-  float volume_{0};
 };
 
 }  // namespace aic3104
