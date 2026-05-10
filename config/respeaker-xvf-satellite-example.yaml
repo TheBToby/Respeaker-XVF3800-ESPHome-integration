@@ -262,6 +262,10 @@ globals:
     type: float
     restore_value: no
     initial_value: '0.0'
+  - id: continuous_conversation_session_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 # Time sync from Home Assistant
 time:
@@ -307,6 +311,20 @@ switch:
     entity_category: config
     optimistic: true
     restore_mode: RESTORE_DEFAULT_ON
+  - platform: template
+    id: continuous_conversation
+    name: Continuous conversation
+    icon: "mdi:account-voice"
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_off_action:
+      - lambda: id(continuous_conversation_session_active) = false;
+      - if:
+          condition:
+            voice_assistant.is_running:
+          then:
+            - voice_assistant.stop:
   # Internal switch to track when a timer is ringing on the device.
   - platform: template
     id: timer_ringing
@@ -1500,6 +1518,7 @@ micro_wake_word:
                                 id: external_media_player
                           # Start the voice assistant and play the wake sound, if enabled
                           else:
+                            - lambda: id(continuous_conversation_session_active) = id(continuous_conversation).state;
                             - if:
                                 condition:
                                   switch.is_on: wake_sound
@@ -1623,6 +1642,7 @@ voice_assistant:
   media_player: external_media_player
   micro_wake_word: mww
   use_wake_word: false
+  conversation_timeout: 300s
   noise_suppression_level: 0
   auto_gain: 0 dbfs
   volume_multiplier: 1
@@ -1639,6 +1659,7 @@ voice_assistant:
     - script.execute: control_leds
   on_client_disconnected:
     - voice_assistant.stop:
+    - lambda: id(continuous_conversation_session_active) = false;
     - lambda: id(voice_assistant_phase) = ${voice_assist_not_ready_phase_id};
     - script.execute: control_leds
   on_error:
@@ -1725,6 +1746,20 @@ voice_assistant:
     # Reset the voice assistant phase id and reset the LED animations.
     - lambda: id(voice_assistant_phase) = ${voice_assist_idle_phase_id};
     - script.execute: control_leds
+    - if:
+        condition:
+          and:
+            - switch.is_on: continuous_conversation
+            - lambda: return id(continuous_conversation_session_active);
+            - api.connected:
+            - switch.is_off: mic_mute_switch
+            - switch.is_off: timer_ringing
+            - lambda: return id(voice_assistant_phase) != ${voice_assist_error_phase_id};
+        then:
+          - delay: 200ms
+          - voice_assistant.start:
+        else:
+          - lambda: id(continuous_conversation_session_active) = false;
   on_timer_finished:
     - switch.turn_on: timer_ringing
     - lambda: |
