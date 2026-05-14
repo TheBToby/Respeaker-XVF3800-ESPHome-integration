@@ -1,12 +1,14 @@
 #pragma once
 
-#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/i2c/i2c.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/select/select.h"
+#ifdef USE_BINARY_SENSOR
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#endif
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
@@ -41,6 +43,12 @@ const uint8_t GPO_GPO_READ_NUM_BYTES = 5;
 const uint8_t AEC_SERVICER_RESID = 33;
 const uint8_t AEC_AZIMUTH_VALUES_CMD = 75;
 
+// AEC fixed-beam (beam-lock) commands. Verified against Respeaker xvf_host.py.
+// AEC_FIXEDBEAMSONOFF       : (33, 37, 1, rw, int32)   — 0 = off, 1 = on
+// AEC_FIXEDBEAMSAZIMUTH_VAL : (33, 81, 2, rw, radians) — two floats: beam 1, beam 2
+const uint8_t AEC_FIXEDBEAMS_ONOFF_CMD = 37;
+const uint8_t AEC_FIXEDBEAMS_AZIMUTH_CMD = 81;
+
 const uint8_t RESID_LED = 0x0C;
 const uint8_t RESID_DFU_VERSION = 0xFE;
 const uint8_t I2C_COMMAND_READ_BIT = 0x80;
@@ -49,6 +57,10 @@ enum TransportProtocolReturnCode : uint8_t {
   CTRL_DONE = 0,
   CTRL_WAIT = 1,
   CTRL_INVALID = 3,
+  // Servicer-level retry signal from XMOS sln_voice (CONTROL_SERVICER_COMMAND_RETRY).
+  // Returned when the servicer has no fresh data yet — common during silence on the
+  // AEC azimuth read. Functionally equivalent to CTRL_WAIT for the host.
+  SERVICER_COMMAND_RETRY = 0x40,
 };
 
 enum RespeakerXVF3800UpdaterStatus : uint8_t {
@@ -195,9 +207,9 @@ class RespeakerXVF3800 : public i2c::I2CDevice, public Component {
     this->firmware_bin_length_ = len;
   }
 
-  void set_mute_state(binary_sensor::BinarySensor* mute_state) {
-    this->mute_state_ = mute_state;
-  }
+  #ifdef USE_BINARY_SENSOR
+  void set_mute_state(binary_sensor::BinarySensor *mute_state) { this->mute_state_ = mute_state; }
+  #endif
 
   void set_firmware_version(text_sensor::TextSensor* firmware_version) {
     this->firmware_version_ = firmware_version;
@@ -226,6 +238,11 @@ class RespeakerXVF3800 : public i2c::I2CDevice, public Component {
   // Read LED beam direction (0-11)
   int read_led_beam_direction();
 
+  // Beam lock: pin the AEC beam to the current azimuth for the duration of an utterance,
+  // then release it. Intended to be called from voice_assistant lambdas.
+  void lock_beam();
+  void unlock_beam();
+
   // Setters for child components
   void set_mute_switch(MuteSwitch *mute_switch) { mute_switch_ = mute_switch; }
   void set_dfu_version_sensor(DFUVersionTextSensor *dfu_version_sensor) { dfu_version_sensor_ = dfu_version_sensor; }
@@ -248,7 +265,9 @@ class RespeakerXVF3800 : public i2c::I2CDevice, public Component {
   bool dfu_check_if_ready_();
 
   GPIOPin *reset_pin_{nullptr};
+  #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *mute_state_{nullptr};
+  #endif
   text_sensor::TextSensor *firmware_version_{nullptr};
 
   bool get_firmware_version_();
@@ -278,9 +297,22 @@ class RespeakerXVF3800 : public i2c::I2CDevice, public Component {
   MuteSwitch *mute_switch_{nullptr};
   DFUVersionTextSensor *dfu_version_sensor_{nullptr};
   LEDBeamSensor *led_beam_sensor_{nullptr};
+
+  // Beam-lock state. While true, read_led_beam_direction() reads beam-1 (the
+  // pinned fixed beam) from the chip instead of the auto-select beam, so the
+  // LED ring stays pointed at the captured wake-word direction.
+  bool beam_locked_{false};
   
   // Helper method for XMOS communication
   void xmos_write_bytes(uint8_t resid, uint8_t cmd, uint8_t *value, uint8_t write_byte_num);
+
+  // Reads one of the four AEC azimuth slots (radians) returned by cmd 75:
+  //   0 = beam 1 (fixed beam 1 when fixed mode is on)
+  //   1 = beam 2 (fixed beam 2 when fixed mode is on)
+  //   2 = free-running beam
+  //   3 = auto-select beam (default — what the adaptive LED follows)
+  // Returns true on success. Shared by read_led_beam_direction() and lock_beam().
+  bool read_azimuth_radians_(float &out_radians, uint8_t beam_index = 3);
 };
 
 }  // namespace respeaker_xvf3800
